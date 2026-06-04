@@ -1,0 +1,6 @@
+{
+  "name": "iAPX Reconciliation and AP Approval",
+  "description": "Financial data ingestion, purchase register reconciliation, and AP approval dashboard for iAPX.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
