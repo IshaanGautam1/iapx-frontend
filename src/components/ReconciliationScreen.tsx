@@ -53,32 +53,80 @@ export function ReconciliationScreen() {
   const [invoiceFilter, setInvoiceFilter] = useState<'All' | 'Fully Matched' | 'AI Matched' | 'AI Probable Match' | 'Missing'>('All');
   const [expandedGstins, setExpandedGstins] = useState<Record<string, boolean>>({});
 
-  // Explicitly logging the top 5 rows of reconciliation dataset
-  useEffect(() => {
-    if (activeReconciliationInvoices && activeReconciliationInvoices.length > 0) {
-      console.log("=== RECONCILIATION DASHBOARD TOP 5 ROWS ===");
-      console.table(
-        activeReconciliationInvoices.slice(0, 5).map((item) => {
-          const inv = item.invoice || item;
-          return {
-            "Invoice No": inv.pr_invoice_no,
-            "Invoice Date": inv.invoice_date,
-            "Vendor Name": inv.vendor_name,
-            "GSTIN": inv.gstin,
-            "Taxable Amount": inv.taxable_value,
-            "GST Amount": inv.gst_amount,
-            "Total Amount": inv.total_amount,
-            "Match Status": inv.match_status,
-            "Matched 2A Invoice": inv.matched_2a_invoice_no,
-            "Variance %": inv.variance_pct,
-            "Confidence": inv.confidence_score,
-            "Suggested Action": inv.suggested_action
-          };
-        })
+  const [prPage, setPrPage] = useState(1);
+  const [reconPage, setReconPage] = useState(1);
+
+  // Filtered PR Invoices
+  const filteredPrInvoices = useMemo(() => {
+    return activePrInvoices.filter((inv) => {
+      const invoice = (inv as any).invoice || inv;
+      return (
+        (invoice.vendor_name || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+        (invoice.pr_invoice_no || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+        (invoice.gstin || '').toLowerCase().includes((searchQuery || '').toLowerCase())
       );
-      console.log("============================================");
+    });
+  }, [activePrInvoices, searchQuery]);
+
+  const prPageSize = 10;
+  const totalPrItems = filteredPrInvoices.length;
+  const totalPrPages = Math.max(1, Math.ceil(totalPrItems / prPageSize));
+  const prStartIndex = (prPage - 1) * prPageSize;
+  const paginatedPrInvoices = useMemo(() => {
+    return filteredPrInvoices.slice(prStartIndex, prStartIndex + prPageSize);
+  }, [filteredPrInvoices, prStartIndex]);
+
+  // Filtered Reconciliation Invoices
+  const filteredReconInvoices = useMemo(() => {
+    return activeReconciliationInvoices
+      .filter((inv) => {
+        const invoice = (inv as any).invoice || inv;
+        const status = (invoice.match_status || '').trim();
+        if (invoiceFilter === 'All') {
+          return true;
+        }
+        if (invoiceFilter === 'Fully Matched') {
+          return status === 'Fully Matched' || status === 'Matched';
+        }
+        return status === invoiceFilter;
+      })
+      .filter((inv) => {
+        const invoice = (inv as any).invoice || inv;
+        return (
+          (invoice.vendor_name || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+          (invoice.pr_invoice_no || '').toLowerCase().includes((searchQuery || '').toLowerCase())
+        );
+      });
+  }, [activeReconciliationInvoices, invoiceFilter, searchQuery]);
+
+  const reconPageSize = 10;
+  const totalReconItems = filteredReconInvoices.length;
+  const totalReconPages = Math.max(1, Math.ceil(totalReconItems / reconPageSize));
+  const reconStartIndex = (reconPage - 1) * reconPageSize;
+  const paginatedReconInvoices = useMemo(() => {
+    return filteredReconInvoices.slice(reconStartIndex, reconStartIndex + reconPageSize);
+  }, [filteredReconInvoices, reconStartIndex]);
+
+  // Reset page when search or filters change to prevent empty pages
+  useEffect(() => {
+    setPrPage(1);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    setReconPage(1);
+  }, [searchQuery, invoiceFilter, subView]);
+
+  useEffect(() => {
+    if (prPage > totalPrPages) {
+      setPrPage(1);
     }
-  }, [activeReconciliationInvoices]);
+  }, [totalPrPages, prPage]);
+
+  useEffect(() => {
+    if (reconPage > totalReconPages) {
+      setReconPage(1);
+    }
+  }, [totalReconPages, reconPage]);
 
   // Send Mail Modal States
   const [mailModal, setMailModal] = useState<{
@@ -239,10 +287,11 @@ iAPX Solutions`
   const fetchMailDraft = async (gstin: string, tone: '7th' | '9th' | '11th', prompt: string) => {
     setMailModal((prev) => ({ ...prev, regenerating: true }));
     try {
-      const response = await fetch("https://iapx-backend-production.up.railway.app/api/mail/generate", {
+      const response = await fetch("https://avalanche-wad-bundle.ngrok-free.dev/api/mail/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({
           vendorGstin: gstin,
@@ -343,10 +392,11 @@ iAPX Solutions`
   const handleSendDraft = async () => {
     setMailDispatched(true);
     try {
-      await fetch("https://iapx-backend-production.up.railway.app/api/mail/generate", {
+      await fetch("https://avalanche-wad-bundle.ngrok-free.dev/api/mail/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({
           vendorGstin: mailModal.gstin,
@@ -570,52 +620,59 @@ iAPX Solutions`
       </div>
 
       {/* --- SUBVIEW 1: DEFAULT PURCHASE REGISTER --- */}
-      {subView === 'pr' && (
-        <div className="bg-white rounded-3xl border border-[#bae6fd] shadow-sm overflow-hidden animate-fadeIn" id="pr-table-container">
-          <div className="p-6 border-b border-[#bae6fd] flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 bg-slate-50/50">
-            <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-sky-500 animate-pulse" />
-              <h2 className="text-sm font-bold text-slate-700 tracking-wider uppercase">Raw Purchase Registry Ledger</h2>
-            </div>
-            
-            {/* Search Input filter */}
-            <div className="relative">
-              <Search size={16} className="text-slate-400 absolute left-3 w-4 h-4 top-2.5" />
-              <input
-                type="text"
-                placeholder="Search vendor or invoice..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 pr-4 py-1.5 w-full sm:w-64 text-xs border border-sky-150 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-200 text-slate-700"
-              />
-            </div>
-          </div>
+      {subView === 'pr' && (() => {
+        const filteredPrInvoices = activePrInvoices.filter((inv) => {
+          const invoice = (inv as any).invoice || inv;
+          return (
+            (invoice.vendor_name || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+            (invoice.pr_invoice_no || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+            (invoice.gstin || '').toLowerCase().includes((searchQuery || '').toLowerCase())
+          );
+        });
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse" id="purchase-register-table">
-              <thead>
-                <tr className="bg-slate-50 border-b border-[#bae6fd]">
-                  <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider">Invoice No.</th>
-                  <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider">Invoice Date</th>
-                  <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider">Vendor Name</th>
-                  <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider font-mono">GSTIN</th>
-                  <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Taxable Amount</th>
-                  <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">GST Amount</th>
-                  <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Total Amount</th>
-                  <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Line Items</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {activePrInvoices
-                  .filter((inv) => {
-                    const invoice = (inv as any).invoice || inv;
-                    return (
-                      (invoice.vendor_name || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
-                      (invoice.pr_invoice_no || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
-                      (invoice.gstin || '').toLowerCase().includes((searchQuery || '').toLowerCase())
-                    );
-                  })
-                  .map((inv) => {
+        const prPageSize = 10;
+        const totalPrItems = filteredPrInvoices.length;
+        const totalPrPages = Math.max(1, Math.ceil(totalPrItems / prPageSize));
+        const prStartIndex = (prPage - 1) * prPageSize;
+        const paginatedPrInvoices = filteredPrInvoices.slice(prStartIndex, prStartIndex + prPageSize);
+
+        return (
+          <div className="bg-white rounded-3xl border border-[#bae6fd] shadow-sm overflow-hidden animate-fadeIn" id="pr-table-container">
+            <div className="p-6 border-b border-[#bae6fd] flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-sky-500 animate-pulse" />
+                <h2 className="text-sm font-bold text-slate-700 tracking-wider uppercase">Raw Purchase Registry Ledger</h2>
+              </div>
+              
+              {/* Search Input filter */}
+              <div className="relative">
+                <Search size={16} className="text-slate-400 absolute left-3 w-4 h-4 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search vendor or invoice..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 pr-4 py-1.5 w-full sm:w-64 text-xs border border-sky-150 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-200 text-slate-700"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse" id="purchase-register-table">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-[#bae6fd]">
+                    <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider">Invoice No.</th>
+                    <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider">Invoice Date</th>
+                    <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider">Vendor Name</th>
+                    <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider font-mono">GSTIN</th>
+                    <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Taxable Amount</th>
+                    <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">GST Amount</th>
+                    <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Total Amount</th>
+                    <th className="py-3.5 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Line Items</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {paginatedPrInvoices.map((inv) => {
                     const invoice = (inv as any).invoice || inv;
                     return (
                       <tr key={invoice.pr_invoice_no || ''} className="hover:bg-sky-50/20 transition-colors">
@@ -633,11 +690,38 @@ iAPX Solutions`
                       </tr>
                     );
                   })}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination controls */}
+            <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-[#bae6fd] bg-slate-50/50 gap-4">
+              <div className="text-xs text-slate-500 font-bold">
+                Showing {totalPrItems === 0 ? 0 : prStartIndex + 1} to {Math.min(prStartIndex + prPageSize, totalPrItems)} of {totalPrItems} items
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={prPage === 1}
+                  onClick={() => setPrPage(prev => Math.max(prev - 1, 1))}
+                  className="px-3.5 py-2 text-xs font-bold rounded-xl border border-[#bae6fd] bg-white hover:bg-sky-50 text-slate-700 disabled:opacity-50 disabled:pointer-events-none transition shadow-sm cursor-pointer"
+                >
+                  Previous
+                </button>
+                <span className="text-xs font-black text-slate-600 font-mono bg-white border border-[#bae6fd] px-3 py-1.5 rounded-xl shadow-sm">
+                  Page {prPage} of {totalPrPages}
+                </span>
+                <button
+                  disabled={prPage === totalPrPages}
+                  onClick={() => setPrPage(prev => Math.min(prev + 1, totalPrPages))}
+                  className="px-3.5 py-2 text-xs font-bold rounded-xl border border-[#bae6fd] bg-white hover:bg-sky-50 text-slate-700 disabled:opacity-50 disabled:pointer-events-none transition shadow-sm cursor-pointer"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* --- SUBVIEW 2: GSTR-2A OR GSTR-2B RECONCILIATION VIEW --- */}
       {(subView === 'gstr2a' || subView === 'gstr2b') && (
@@ -726,26 +810,7 @@ iAPX Solutions`
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {activeReconciliationInvoices
-                      .filter((inv) => {
-                        const invoice = (inv as any).invoice || inv;
-                        const status = (invoice.match_status || '').trim();
-                        if (invoiceFilter === 'All') {
-                          return true;
-                        }
-                        if (invoiceFilter === 'Fully Matched') {
-                          return status === 'Fully Matched' || status === 'Matched';
-                        }
-                        return status === invoiceFilter;
-                      })
-                      .filter((inv) => {
-                        const invoice = (inv as any).invoice || inv;
-                        return (
-                          (invoice.vendor_name || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
-                          (invoice.pr_invoice_no || '').toLowerCase().includes((searchQuery || '').toLowerCase())
-                        );
-                      })
-                      .map((inv) => {
+                    {paginatedReconInvoices.map((inv) => {
                         const invoice = (inv as any).invoice || inv;
                         
                         const prTaxable = Number(invoice.pr_taxable_value) || 0;
@@ -896,6 +961,33 @@ iAPX Solutions`
                   </tbody>
                 </table>
               </div>
+
+              {/* Beautiful Pagination Control Bar */}
+              <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-[#bae6fd] bg-slate-50/50 gap-4">
+                <div className="text-xs text-slate-500 font-bold">
+                  Showing {totalReconItems === 0 ? 0 : reconStartIndex + 1} to {Math.min(reconStartIndex + reconPageSize, totalReconItems)} of {totalReconItems} Invoices
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={reconPage === 1}
+                    onClick={() => setReconPage(prev => Math.max(prev - 1, 1))}
+                    className="px-3.5 py-2 text-xs font-bold rounded-xl border border-[#bae6fd] bg-white hover:bg-sky-50 text-slate-700 disabled:opacity-50 disabled:pointer-events-none transition shadow-sm cursor-pointer"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-xs font-black text-slate-600 font-mono bg-white border border-[#bae6fd] px-3 py-1.5 rounded-xl shadow-sm">
+                    Page {reconPage} of {totalReconPages}
+                  </span>
+                  <button
+                    disabled={reconPage === totalReconPages}
+                    onClick={() => setReconPage(prev => Math.min(prev + 1, totalReconPages))}
+                    className="px-3.5 py-2 text-xs font-bold rounded-xl border border-[#bae6fd] bg-white hover:bg-sky-50 text-slate-700 disabled:opacity-50 disabled:pointer-events-none transition shadow-sm cursor-pointer"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+
             </div>
           )}
 

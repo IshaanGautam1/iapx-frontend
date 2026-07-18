@@ -85,10 +85,11 @@ export function DataIngestion({ isModal = false }: DataIngestionProps) {
     setApiError(null);
 
     try {
-      const httpResponse = await fetch("https://iapx-backend-production.up.railway.app/api/load-data", {
+      const httpResponse = await fetch("https://avalanche-wad-bundle.ngrok-free.dev/api/load-data", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
         },
         body: JSON.stringify({}),
       });
@@ -121,19 +122,6 @@ export function DataIngestion({ isModal = false }: DataIngestionProps) {
         aiProbableMatch: 0,
         missing: 0
       });
-
-      console.log('=== BACKEND DATA RECEIVED ===');
-      console.log('PR Data sample (first 3):', 
-        JSON.stringify(response.prData?.slice(0,3), null, 2));
-      console.log('Vendor Profiles sample (first 3 keys):', 
-        JSON.stringify(
-          Object.values(response.vendorProfiles || {}).slice(0,3), 
-          null, 2
-        ));
-      console.log('Match Results sample (first 3):', 
-        JSON.stringify(response.matchResults?.slice(0,3), null, 2));
-      console.log('Summary:', JSON.stringify(response.summary));
-      console.log('=== END BACKEND DATA ===');
 
       // Save back to global context state
       setUploadedFiles(localFiles);

@@ -217,6 +217,27 @@ export function ApApprovalScreen() {
     });
   }, [invoices, searchQuery]);
 
+  // Pagination for Invoice Approval Queue (10 items per page)
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+  const totalItems = processedInvoices.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  React.useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(1);
+    }
+  }, [totalPages, currentPage]);
+
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedProcessedInvoices = useMemo(() => {
+    return processedInvoices.slice(startIndex, startIndex + pageSize);
+  }, [processedInvoices, startIndex]);
+
   return (
     <div className="w-full max-w-7xl mx-auto px-4 py-8 font-sans" id="ap-approval-screen">
       
@@ -313,8 +334,8 @@ export function ApApprovalScreen() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {processedInvoices.length > 0 ? (
-                processedInvoices.map((inv) => {
+              {paginatedProcessedInvoices.length > 0 ? (
+                paginatedProcessedInvoices.map((inv) => {
                   const risk = getRiskRating(inv);
                   const profile = getVendorProfile(inv.gstin);
                   const isApproved = inv.ap_status === 'Approved';
@@ -600,6 +621,33 @@ export function ApApprovalScreen() {
             </tbody>
           </table>
         </div>
+
+        {/* Beautiful Pagination Control Bar */}
+        <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-sky-100 bg-slate-50/50 gap-4">
+          <div className="text-xs text-slate-500 font-bold">
+            Showing {totalItems === 0 ? 0 : startIndex + 1} to {Math.min(startIndex + pageSize, totalItems)} of {totalItems} Invoices
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              className="px-3.5 py-2 text-xs font-bold rounded-xl border border-sky-150 bg-white hover:bg-sky-50 text-slate-700 disabled:opacity-50 disabled:pointer-events-none transition shadow-sm cursor-pointer"
+            >
+              Previous
+            </button>
+            <span className="text-xs font-black text-slate-600 font-mono bg-white border border-sky-100 px-3 py-1.5 rounded-xl shadow-sm">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              className="px-3.5 py-2 text-xs font-bold rounded-xl border border-sky-150 bg-white hover:bg-sky-50 text-slate-700 disabled:opacity-50 disabled:pointer-events-none transition shadow-sm cursor-pointer"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+
       </div>
 
       {/* --- MEDIUM RISK WARNING CONFIRMATION MODAL --- */}

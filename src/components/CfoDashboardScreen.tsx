@@ -81,73 +81,152 @@ export function CfoDashboardScreen() {
   const gstr3b = getGstr3bDeadline();
   const sec16 = getSec16Deadline();
 
-  // 1. Compute ITC Summary Cards Data
-  let itcSecured = 0;
-  let itcAtRisk = 0;
-  let itcPendingReview = 0;
-  let totalGstInPr = 0;
-
-  (prData || []).forEach((inv) => {
-    const gstAmount = Number(inv.gst_amount) || 0;
-    const status = getStatus(inv);
-    totalGstInPr += gstAmount;
-    
-    if (status === 'Fully Matched' || status === 'Matched') {
-      itcSecured += gstAmount;
-    } else if (status === 'Missing') {
-      itcAtRisk += gstAmount;
-    } else if (status === 'AI Matched' || status === 'AI Probable Match') {
-      itcPendingReview += gstAmount;
-    }
+  // State to store precomputed dashboard statistics to avoid heavy recalculations on every render
+  const [dashboardStats, setDashboardStats] = React.useState({
+    itcSecured: 0,
+    itcAtRisk: 0,
+    itcPendingReview: 0,
+    totalGstInPr: 0,
+    vendorRiskData: [] as any[],
+    top5RiskVendors: [] as any[],
+    totalInvoicesCount: 1,
+    fullyMatchedCount: 0,
+    aiMatchedCount: 0,
+    aiProbableCount: 0,
+    missingCount: 0,
+    fullyMatchedPct: 0,
+    aiMatchedPct: 0,
+    aiProbablePct: 0,
+    missingPct: 0,
+    fullyMatchedGst: 0,
+    aiMatchedGst: 0,
+    aiProbableGst: 0,
+    missingGst: 0,
   });
 
-  // 2. Compute Vendor Risk Table Data
-  const profilesArray = Array.isArray(vendorProfiles)
-    ? vendorProfiles
-    : (vendorProfiles ? Object.values(vendorProfiles) : []);
+  // Calculate statistics exactly once when the source data (prData, vendorProfiles, summary) changes/loads
+  React.useEffect(() => {
+    let computedSecured = 0;
+    let computedAtRisk = 0;
+    let computedPending = 0;
+    let computedTotalGst = 0;
 
-  const vendorRiskData = profilesArray.map((vendor: any) => {
-    const vGstin = vendor.gstin || vendor.vendorGstin || '';
-    
-    // Sum of gst_amount from prData where gstin matches and match_status === 'Missing'
-    const matchingPrInvoices = (prData || []).filter((inv) => {
-      const invGstin = inv.gstin || '';
-      const invStatus = getStatus(inv);
-      return invGstin === vGstin && invStatus === 'Missing';
+    const invoices = prData || [];
+    invoices.forEach((inv) => {
+      const gstAmount = Number(inv.gst_amount) || 0;
+      const status = getStatus(inv);
+      computedTotalGst += gstAmount;
+      
+      if (status === 'Fully Matched' || status === 'Matched') {
+        computedSecured += gstAmount;
+      } else if (status === 'Missing') {
+        computedAtRisk += gstAmount;
+      } else if (status === 'AI Matched' || status === 'AI Probable Match') {
+        computedPending += gstAmount;
+      }
     });
-    
-    const itcAtRiskVal = matchingPrInvoices.reduce((sum, inv) => sum + (Number(inv.gst_amount) || 0), 0);
-    
-    return {
-      ...vendor,
-      computedItcAtRisk: itcAtRiskVal,
-    };
-  });
 
-  // Sort by ITC At Risk descending
-  vendorRiskData.sort((a, b) => b.computedItcAtRisk - a.computedItcAtRisk);
+    const profilesArray = Array.isArray(vendorProfiles)
+      ? vendorProfiles
+      : (vendorProfiles ? Object.values(vendorProfiles) : []);
 
-  // 3. Invoice Status Breakdown Computations
-  const totalInvoicesCount = summary.totalInvoices || prData.length || 1;
-  const fullyMatchedCount = summary.fullyMatched ?? (prData || []).filter(i => getStatus(i) === 'Fully Matched' || getStatus(i) === 'Matched').length;
-  const aiMatchedCount = summary.aiMatched ?? (prData || []).filter(i => getStatus(i) === 'AI Matched').length;
-  const aiProbableCount = summary.aiProbableMatch ?? (prData || []).filter(i => getStatus(i) === 'AI Probable Match').length;
-  const missingCount = summary.missing ?? (prData || []).filter(i => getStatus(i) === 'Missing').length;
+    const vendorRiskDataVal = profilesArray.map((vendor: any) => {
+      const vGstin = vendor.gstin || vendor.vendorGstin || '';
+      const matchingPrInvoices = invoices.filter((inv) => {
+        const invGstin = inv.gstin || '';
+        const invStatus = getStatus(inv);
+        return invGstin === vGstin && invStatus === 'Missing';
+      });
+      
+      const itcAtRiskVal = matchingPrInvoices.reduce((sum, inv) => sum + (Number(inv.gst_amount) || 0), 0);
+      
+      return {
+        ...vendor,
+        computedItcAtRisk: itcAtRiskVal,
+      };
+    });
 
-  const fullyMatchedPct = (fullyMatchedCount / totalInvoicesCount) * 100;
-  const aiMatchedPct = (aiMatchedCount / totalInvoicesCount) * 100;
-  const aiProbablePct = (aiProbableCount / totalInvoicesCount) * 100;
-  const missingPct = (missingCount / totalInvoicesCount) * 100;
+    // Sort descending by calculated ITC Risk
+    vendorRiskDataVal.sort((a, b) => b.computedItcAtRisk - a.computedItcAtRisk);
 
-  const fullyMatchedGst = (prData || []).filter(i => getStatus(i) === 'Fully Matched' || getStatus(i) === 'Matched').reduce((sum, i) => sum + (Number(i.gst_amount) || 0), 0);
-  const aiMatchedGst = (prData || []).filter(i => getStatus(i) === 'AI Matched').reduce((sum, i) => sum + (Number(i.gst_amount) || 0), 0);
-  const aiProbableGst = (prData || []).filter(i => getStatus(i) === 'AI Probable Match').reduce((sum, i) => sum + (Number(i.gst_amount) || 0), 0);
-  const missingGst = (prData || []).filter(i => getStatus(i) === 'Missing').reduce((sum, i) => sum + (Number(i.gst_amount) || 0), 0);
+    const totalInvoicesCount = (summary && summary.totalInvoices) || invoices.length || 1;
+    const fullyMatchedCount = (summary && summary.fullyMatched) ?? invoices.filter(i => getStatus(i) === 'Fully Matched' || getStatus(i) === 'Matched').length;
+    const aiMatchedCount = (summary && summary.aiMatched) ?? invoices.filter(i => getStatus(i) === 'AI Matched').length;
+    const aiProbableCount = (summary && summary.aiProbableMatch) ?? invoices.filter(i => getStatus(i) === 'AI Probable Match').length;
+    const missingCount = (summary && summary.missing) ?? invoices.filter(i => getStatus(i) === 'Missing').length;
 
-  // 4. Top 5 Vendors by ITC At Risk
-  const top5RiskVendors = vendorRiskData
-    .filter(v => v.computedItcAtRisk > 0)
-    .slice(0, 5);
+    const fullyMatchedPct = (fullyMatchedCount / totalInvoicesCount) * 100;
+    const aiMatchedPct = (aiMatchedCount / totalInvoicesCount) * 100;
+    const aiProbablePct = (aiProbableCount / totalInvoicesCount) * 100;
+    const missingPct = (missingCount / totalInvoicesCount) * 100;
+
+    const fullyMatchedGst = invoices.filter(i => getStatus(i) === 'Fully Matched' || getStatus(i) === 'Matched').reduce((sum, i) => sum + (Number(i.gst_amount) || 0), 0);
+    const aiMatchedGst = invoices.filter(i => getStatus(i) === 'AI Matched').reduce((sum, i) => sum + (Number(i.gst_amount) || 0), 0);
+    const aiProbableGst = invoices.filter(i => getStatus(i) === 'AI Probable Match').reduce((sum, i) => sum + (Number(i.gst_amount) || 0), 0);
+    const missingGst = invoices.filter(i => getStatus(i) === 'Missing').reduce((sum, i) => sum + (Number(i.gst_amount) || 0), 0);
+
+    const top5RiskVendorsVal = vendorRiskDataVal
+      .filter(v => v.computedItcAtRisk > 0)
+      .slice(0, 5);
+
+    setDashboardStats({
+      itcSecured: computedSecured,
+      itcAtRisk: computedAtRisk,
+      itcPendingReview: computedPending,
+      totalGstInPr: computedTotalGst,
+      vendorRiskData: vendorRiskDataVal,
+      top5RiskVendors: top5RiskVendorsVal,
+      totalInvoicesCount,
+      fullyMatchedCount,
+      aiMatchedCount,
+      aiProbableCount,
+      missingCount,
+      fullyMatchedPct,
+      aiMatchedPct,
+      aiProbablePct,
+      missingPct,
+      fullyMatchedGst,
+      aiMatchedGst,
+      aiProbableGst,
+      missingGst,
+    });
+  }, [prData, vendorProfiles, summary]);
+
+  const {
+    itcSecured,
+    itcAtRisk,
+    itcPendingReview,
+    totalGstInPr,
+    vendorRiskData,
+    top5RiskVendors,
+    fullyMatchedCount,
+    aiMatchedCount,
+    aiProbableCount,
+    missingCount,
+    fullyMatchedPct,
+    aiMatchedPct,
+    aiProbablePct,
+    missingPct,
+    fullyMatchedGst,
+    aiMatchedGst,
+    aiProbableGst,
+    missingGst,
+  } = dashboardStats;
+
+  // Pagination for Vendor Risk Table (10 rows per page)
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const pageSize = 10;
+  const totalItems = vendorRiskData.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+
+  React.useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(1);
+    }
+  }, [totalPages]);
+
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedVendorRiskData = vendorRiskData.slice(startIndex, startIndex + pageSize);
 
   const formatPercentage = (val: number) => {
     return val.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
@@ -554,7 +633,7 @@ export function CfoDashboardScreen() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-              {vendorRiskData.map((vendor, idx) => {
+              {paginatedVendorRiskData.map((vendor, idx) => {
                 const risk = vendor.risk_level || 'Low';
                 const hasRisk = vendor.computedItcAtRisk > 0;
                 
@@ -634,6 +713,32 @@ export function CfoDashboardScreen() {
               })}
             </tbody>
           </table>
+        </div>
+
+        {/* Beautiful Pagination Control Bar */}
+        <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-sky-100 bg-slate-50/50 gap-4">
+          <div className="text-xs text-slate-500 font-bold">
+            Showing {totalItems === 0 ? 0 : startIndex + 1} to {Math.min(startIndex + pageSize, totalItems)} of {totalItems} Vendors
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              className="px-3.5 py-2 text-xs font-bold rounded-xl border border-sky-150 bg-white hover:bg-sky-50 text-slate-700 disabled:opacity-50 disabled:pointer-events-none transition shadow-sm cursor-pointer"
+            >
+              Previous
+            </button>
+            <span className="text-xs font-black text-slate-600 font-mono bg-white border border-sky-100 px-3 py-1.5 rounded-xl shadow-sm">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              className="px-3.5 py-2 text-xs font-bold rounded-xl border border-sky-150 bg-white hover:bg-sky-50 text-slate-700 disabled:opacity-50 disabled:pointer-events-none transition shadow-sm cursor-pointer"
+            >
+              Next
+            </button>
+          </div>
         </div>
 
       </div>
