@@ -199,6 +199,7 @@ export function CfoDashboardScreen() {
     totalGstInPr,
     vendorRiskData,
     top5RiskVendors,
+    totalInvoicesCount,
     fullyMatchedCount,
     aiMatchedCount,
     aiProbableCount,
